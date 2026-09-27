@@ -22,22 +22,49 @@ export const corsOptions = {
     // allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
 
-    const allowedOrigins = [
-      env.CORS_ORIGIN,
+    const configuredOrigins = (env.CORS_ORIGIN || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+
+    const clientUrls = (env.CLIENT_URL || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+
+    const staticAllowedOrigins = [
+      ...configuredOrigins,
+      ...clientUrls,
+      'https://erp-frontend-theta-fawn.vercel.app',
       'http://localhost:5173',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
+      'http://localhost:4173',
     ];
 
-    if (allowedOrigins.indexOf(origin) !== -1 || env.isDevelopment) {
+    let hostname = '';
+    try {
+      hostname = new URL(origin).hostname;
+    } catch {
+      hostname = origin;
+    }
+
+    const isAllowed =
+      staticAllowedOrigins.includes(origin) ||
+      hostname.endsWith('.vercel.app') ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      env.isDevelopment;
+
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS policy'));
+      callback(new Error(`Not allowed by CORS policy: ${origin}`));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'Accept'],
 };
 
 export const securityMiddleware = [
