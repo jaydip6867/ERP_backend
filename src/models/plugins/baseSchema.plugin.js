@@ -115,8 +115,11 @@ export const baseSchemaPlugin = (schema, options = {}) => {
   schema.set('toJSON', {
     virtuals: true,
     transform: (doc, ret) => {
-      ret.id = ret._id ? ret._id.toString() : ret.id;
-      delete ret._id;
+      const stringId = ret._id ? ret._id.toString() : (ret.id ? ret.id.toString() : undefined);
+      if (stringId) {
+        ret.id = stringId;
+        ret._id = stringId;
+      }
       delete ret.__v;
       return ret;
     },
@@ -125,8 +128,11 @@ export const baseSchemaPlugin = (schema, options = {}) => {
   schema.set('toObject', {
     virtuals: true,
     transform: (doc, ret) => {
-      ret.id = ret._id ? ret._id.toString() : ret.id;
-      delete ret._id;
+      const stringId = ret._id ? ret._id.toString() : (ret.id ? ret.id.toString() : undefined);
+      if (stringId) {
+        ret.id = stringId;
+        ret._id = stringId;
+      }
       delete ret.__v;
       return ret;
     },
