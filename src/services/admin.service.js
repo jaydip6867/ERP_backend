@@ -64,13 +64,25 @@ export const createUser = async (data, actorUser, req = null) => {
   const salt = await bcrypt.genSalt(10);
   const passwordHash = await bcrypt.hash(data.password || 'Danza@123456', salt);
 
-  const newUser = await User.create({
+  const payload = {
     ...data,
     user_code: userCode,
     email: data.email.toLowerCase(),
     password_hash: passwordHash,
     status: data.status || 'active',
-  });
+  };
+
+  if (!payload.branch_id || payload.branch_id === '') {
+    payload.branch_id = null;
+  }
+  if (!payload.role_id || payload.role_id === '') {
+    payload.role_id = null;
+  }
+  if (!payload.reporting_manager_id || payload.reporting_manager_id === '') {
+    payload.reporting_manager_id = null;
+  }
+
+  const newUser = await User.create(payload);
 
   await recordAuditLog({
     user: actorUser,
@@ -123,7 +135,11 @@ export const updateUser = async (id, data, actorUser, req = null) => {
 
   updatable.forEach((field) => {
     if (data[field] !== undefined) {
-      user[field] = data[field];
+      if (['branch_id', 'role_id', 'reporting_manager_id'].includes(field) && (data[field] === '' || data[field] === null)) {
+        user[field] = null;
+      } else {
+        user[field] = data[field];
+      }
     }
   });
 

@@ -448,10 +448,6 @@ export const getRolePermissions = async (roleId) => {
 export const updateRolePermissions = async (roleId, permissionsArray) => {
   const role = await getRoleById(roleId);
 
-  if (isSuperRole(role.role_code)) {
-    throw AppError.badRequest('System Owner/Admin permissions are immutable and permanently full-access.');
-  }
-
   const operations = permissionsArray.map((perm) => {
     const updatePayload = {
       role_id: roleId,
