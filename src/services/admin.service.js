@@ -104,6 +104,15 @@ export const updateUser = async (id, data, actorUser, req = null) => {
 
   const beforeSnapshot = user.toObject();
 
+  if (data.status && data.status !== 'active') {
+    if (user.email === 'admin@danzaerp.com') {
+      throw AppError.badRequest('The primary system administrator account cannot be deactivated.');
+    }
+    if (actorUser && (actorUser._id?.toString() === user._id.toString() || actorUser.id?.toString() === user._id.toString())) {
+      throw AppError.badRequest('You cannot deactivate your own active session account.');
+    }
+  }
+
   if (data.email && data.email.toLowerCase() !== user.email) {
     const existing = await User.findOne({ email: data.email.toLowerCase(), _id: { $ne: id } });
     if (existing) throw AppError.conflict('Email address already registered to another user.');
