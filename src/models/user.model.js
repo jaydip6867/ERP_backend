@@ -69,6 +69,11 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    expiry_date: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     employee_type: {
       type: String,
       enum: ['full_time', 'part_time', 'contract', 'intern'],
@@ -227,6 +232,15 @@ userSchema.methods.handleSuccessfulLogin = async function (ip = null) {
   this.last_login_ip = ip;
 
   return this.save({ validateBeforeSave: false });
+};
+
+/**
+ * Check if the user account has passed its expiry date.
+ * @returns {boolean}
+ */
+userSchema.methods.isExpired = function () {
+  if (!this.expiry_date) return false;
+  return new Date(this.expiry_date).getTime() <= Date.now();
 };
 
 /**

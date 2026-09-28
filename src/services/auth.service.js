@@ -52,7 +52,20 @@ export const login = async ({ email, password, ip, userAgent }) => {
     );
   }
 
-  // 3. Check status
+  // 3. Check expiry date and status
+  if (user.expiry_date && new Date(user.expiry_date).getTime() <= Date.now()) {
+    if (user.status !== 'inactive') {
+      user.status = 'inactive';
+      await user.save({ validateBeforeSave: false });
+    }
+    const formattedDate = new Date(user.expiry_date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    throw AppError.forbidden(`Your account expired on ${formattedDate} and has been deactivated. Please contact the administrator.`);
+  }
+
   if (user.status !== 'active') {
     throw AppError.forbidden(`Your account is currently ${user.status}. Please contact the administrator.`);
   }

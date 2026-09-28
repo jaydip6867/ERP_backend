@@ -17,6 +17,19 @@ import { getNextNumber } from './numberSeries.service.js';
 // ==========================================
 
 export const getUsers = async ({ page = 1, limit = 20, search, status, role_id, department }) => {
+  // Automatically mark expired users as inactive
+  try {
+    await User.updateMany(
+      {
+        expiry_date: { $lte: new Date(), $ne: null },
+        status: { $ne: 'inactive' },
+      },
+      { $set: { status: 'inactive' } }
+    );
+  } catch (e) {
+    // Non-blocking
+  }
+
   const filter = {};
   if (status) filter.status = status;
   if (role_id) filter.role_id = role_id;
@@ -81,6 +94,15 @@ export const createUser = async (data, actorUser, req = null) => {
   if (!payload.reporting_manager_id || payload.reporting_manager_id === '') {
     payload.reporting_manager_id = null;
   }
+  if (!payload.expiry_date || payload.expiry_date === '') {
+    payload.expiry_date = null;
+  } else {
+    const exp = new Date(payload.expiry_date);
+    payload.expiry_date = exp;
+    if (exp.getTime() <= Date.now()) {
+      payload.status = 'inactive';
+    }
+  }
 
   const newUser = await User.create(payload);
 
@@ -136,6 +158,7 @@ export const updateUser = async (id, data, actorUser, req = null) => {
     'employee_type',
     'status',
     'joining_date',
+    'expiry_date',
     'language',
     'timezone',
     'default_dashboard',
@@ -146,6 +169,16 @@ export const updateUser = async (id, data, actorUser, req = null) => {
     if (data[field] !== undefined) {
       if (['branch_id', 'role_id', 'reporting_manager_id'].includes(field) && (data[field] === '' || data[field] === null)) {
         user[field] = null;
+      } else if (field === 'expiry_date') {
+        if (!data[field] || data[field] === '') {
+          user.expiry_date = null;
+        } else {
+          const expDate = new Date(data[field]);
+          user.expiry_date = expDate;
+          if (expDate.getTime() <= Date.now()) {
+            user.status = 'inactive';
+          }
+        }
       } else {
         user[field] = data[field];
       }

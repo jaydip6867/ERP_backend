@@ -46,6 +46,14 @@ export const authenticateUser = asyncHandler(async (req, res, next) => {
     );
   }
 
+  if (user.expiry_date && new Date(user.expiry_date).getTime() <= Date.now()) {
+    if (user.status !== 'inactive') {
+      user.status = 'inactive';
+      await user.save({ validateBeforeSave: false });
+    }
+    return next(AppError.forbidden('Your account has reached its expiry date and is now inactive. Please contact support.'));
+  }
+
   if (user.status !== 'active') {
     return next(AppError.forbidden(`Your account is currently ${user.status}. Please contact support.`));
   }
