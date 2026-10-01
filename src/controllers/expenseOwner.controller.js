@@ -3,6 +3,7 @@ import { Expense, ExpenseCategory } from '../models/expense.model.js';
 import { OwnerFinance } from '../models/ownerFinance.model.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { AppError } from '../utils/appError.js';
 
 export const getExpenses = asyncHandler(async (req, res) => {
   const expenses = await Expense.find().populate('category_id bank_account_id').sort({ expense_date: -1 });
@@ -22,6 +23,12 @@ export const getExpenseCategories = asyncHandler(async (req, res) => {
 export const createExpenseCategory = asyncHandler(async (req, res) => {
   const cat = await ExpenseCategory.create({ ...req.body, created_by: req.user?._id });
   return ApiResponse.created(res, cat, 'Expense category created');
+});
+
+export const updateExpenseCategory = asyncHandler(async (req, res) => {
+  const cat = await ExpenseCategory.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  if (!cat) throw AppError.notFound('Expense category not found');
+  return ApiResponse.success(res, cat, 'Expense category updated');
 });
 
 export const getExpenseBudgetReport = asyncHandler(async (req, res) => {

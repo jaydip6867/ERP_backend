@@ -6,6 +6,7 @@ import {
   createExpense,
   getExpenseCategories,
   createExpenseCategory,
+  updateExpenseCategory,
   getExpenseBudgetReport,
   getOwnerTransactions,
   createOwnerTransaction,
@@ -19,6 +20,7 @@ router.get('/expenses', requirePermission('finance', 'can_view'), getExpenses);
 router.post('/expenses', requirePermission('finance', 'can_create'), createExpense);
 router.get('/categories', requirePermission('finance', 'can_view'), getExpenseCategories);
 router.post('/categories', requirePermission('finance', 'can_create'), createExpenseCategory);
+router.put('/categories/:id', requirePermission('finance', 'can_edit'), updateExpenseCategory);
 router.get('/budgets', requirePermission('finance', 'can_view'), getExpenseBudgetReport);
 
 // Owner Capital / Drawings / Safe-to-Withdraw

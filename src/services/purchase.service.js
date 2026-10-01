@@ -7,6 +7,9 @@ import { PurchaseReturn } from '../models/purchaseReturn.model.js';
 import { StockTransactionService } from './stockTransaction.service.js';
 import { GstCalculationService } from './gstCalculation.service.js';
 import { Batch } from '../models/batch.model.js';
+import { Warehouse } from '../models/warehouse.model.js';
+import { Branch } from '../models/branch.model.js';
+import { User } from '../models/user.model.js';
 import { AppError } from '../utils/appError.js';
 
 export class PurchaseService {
@@ -146,6 +149,38 @@ export class PurchaseService {
     if (!poNumber) {
       const count = await PurchaseOrder.countDocuments();
       poNumber = `PO-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    }
+
+    // Auto-resolve warehouse_id and branch_id if missing
+    if (!data.warehouse_id) {
+      const defaultWh = await Warehouse.findOne({ is_active: { $ne: false } }) || await Warehouse.findOne();
+      if (defaultWh) {
+        data.warehouse_id = defaultWh._id;
+        if (!data.branch_id && defaultWh.branch_id) {
+          data.branch_id = defaultWh.branch_id;
+        }
+      }
+    }
+
+    if (!data.branch_id && data.warehouse_id) {
+      const wh = await Warehouse.findById(data.warehouse_id);
+      if (wh?.branch_id) {
+        data.branch_id = wh.branch_id;
+      }
+    }
+
+    if (!data.branch_id && userId) {
+      const u = await User.findById(userId);
+      if (u?.branch_id) {
+        data.branch_id = u.branch_id;
+      }
+    }
+
+    if (!data.branch_id) {
+      const defBranch = await Branch.findOne();
+      if (defBranch) {
+        data.branch_id = defBranch._id;
+      }
     }
 
     const isInterstate = Boolean(data.is_interstate);
