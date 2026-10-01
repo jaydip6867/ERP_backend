@@ -3,6 +3,10 @@ import { CreditDebitNote } from '../models/creditDebitNote.model.js';
 import { Dispatch } from '../models/dispatch.model.js';
 import { SalesOrder } from '../models/salesOrder.model.js';
 import { Customer } from '../models/customer.model.js';
+import { Supplier } from '../models/supplier.model.js';
+import { Branch } from '../models/branch.model.js';
+import { User } from '../models/user.model.js';
+import { Product } from '../models/product.model.js';
 import { GstCalculationService } from './gstCalculation.service.js';
 import { AppError } from '../utils/appError.js';
 
@@ -105,14 +109,58 @@ export class InvoiceService {
     const customer = await Customer.findById(data.customer_id);
     if (!customer) throw AppError.notFound('Customer not found');
 
+    // Auto-resolve branch_id if missing
+    if (!data.branch_id && userId) {
+      const u = await User.findById(userId);
+      if (u?.branch_id) data.branch_id = u.branch_id;
+    }
+    if (!data.branch_id && customer?.branch_id) {
+      data.branch_id = customer.branch_id;
+    }
+    if (!data.branch_id) {
+      const defBranch = await Branch.findOne();
+      if (defBranch) data.branch_id = defBranch._id;
+    }
+
+    // Auto-resolve billing/shipping address if missing
+    if (!data.billing_address || !data.billing_address.address_line1) {
+      data.billing_address = {
+        address_line1: customer.billing_address?.address_line1 || 'Main Office',
+        city: customer.billing_address?.city || 'Surat',
+        state: customer.billing_address?.state || 'Gujarat',
+        pincode: customer.billing_address?.pincode || '395002',
+        gstin: customer.gstin || '',
+      };
+    }
+    if (!data.shipping_address || !data.shipping_address.address_line1) {
+      data.shipping_address = data.billing_address;
+    }
+
     // Tax computation
     const isInterstate = Boolean(data.is_interstate);
-    const taxCalc = GstCalculationService.calculateItemTaxes(data.items || [], isInterstate);
+    const rawItems = data.items || [];
+    const taxCalc = GstCalculationService.calculateItemTaxes(rawItems, isInterstate);
+
+    const processedItems = await Promise.all(
+      taxCalc.items.map(async (item) => {
+        let itemName = item.item_name;
+        if (!itemName && item.product_id) {
+          const p = await Product.findById(item.product_id);
+          if (p) itemName = p.product_name;
+        }
+        return {
+          ...item,
+          item_name: itemName || 'Standard Product',
+          quantity: Number(item.quantity || 1),
+          rate: Number(item.rate || 0),
+        };
+      })
+    );
 
     const invoice = await Invoice.create({
       ...data,
       invoice_number: invoiceNumber,
-      items: taxCalc.items,
+      items: processedItems,
       subtotal: taxCalc.subtotal,
       discount_total: taxCalc.discount_total,
       taxable_total: taxCalc.taxable_total,
@@ -241,9 +289,45 @@ export class InvoiceService {
       noteNumber = `${prefix}-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
     }
 
+    if (!data.party_type) {
+      data.party_type = data.supplier_id ? 'supplier' : 'customer';
+    }
+
+    if (data.original_invoice_id && !data.original_invoice_number) {
+      const origInv = await Invoice.findById(data.original_invoice_id);
+      if (origInv) {
+        data.original_invoice_number = origInv.invoice_number;
+        if (!data.customer_id && origInv.customer_id) {
+          data.customer_id = origInv.customer_id;
+        }
+      }
+    }
+
+    const taxable = Number(data.taxable_amount || 0);
+    const gstRate = Number(data.gst_rate || 18);
+    let cgst = Number(data.cgst_total || 0);
+    let sgst = Number(data.sgst_total || 0);
+    let igst = Number(data.igst_total || 0);
+
+    if (!cgst && !sgst && !igst && taxable > 0) {
+      if (data.is_interstate) {
+        igst = Math.round((taxable * gstRate) / 100 * 100) / 100;
+      } else {
+        cgst = Math.round((taxable * (gstRate / 2)) / 100 * 100) / 100;
+        sgst = Math.round((taxable * (gstRate / 2)) / 100 * 100) / 100;
+      }
+    }
+
+    const grandTotal = Number(data.grand_total || (taxable + cgst + sgst + igst));
+
     const note = await CreditDebitNote.create({
       ...data,
       note_number: noteNumber,
+      taxable_amount: taxable,
+      cgst_total: cgst,
+      sgst_total: sgst,
+      igst_total: igst,
+      grand_total: grandTotal,
       status: 'issued',
       created_by: userId,
     });

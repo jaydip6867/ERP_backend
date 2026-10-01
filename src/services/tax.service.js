@@ -2,6 +2,7 @@ import { TaxRate } from '../models/taxRate.model.js';
 import { GstCalculationService } from './gstCalculation.service.js';
 import { Invoice } from '../models/invoice.model.js';
 import { PurchaseInvoice } from '../models/purchaseInvoice.model.js';
+import { Supplier } from '../models/supplier.model.js';
 import { AppError } from '../utils/appError.js';
 
 export class TaxService {
