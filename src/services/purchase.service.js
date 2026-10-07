@@ -40,7 +40,27 @@ export class PurchaseService {
   static async getSupplierById(id) {
     const supplier = await Supplier.findById(id);
     if (!supplier) throw AppError.notFound('Supplier not found');
-    return supplier;
+
+    const purchaseOrders = await PurchaseOrder.find({ supplier_id: id })
+      .populate('warehouse_id', 'warehouse_name')
+      .populate('items.product_id', 'product_name product_code')
+      .sort({ po_date: -1 })
+      .limit(50);
+
+    const invoices = await PurchaseInvoice.find({ supplier_id: id, status: { $ne: 'cancelled' } });
+    const pendingInvoicesAmount = invoices.reduce((sum, inv) => {
+      const balance = typeof inv.balance_amount === 'number' ? inv.balance_amount : ((inv.grand_total || 0) - (inv.paid_amount || 0));
+      return sum + Math.max(0, balance);
+    }, 0);
+
+    const pendingPayment = Math.max(supplier.current_balance || 0, pendingInvoicesAmount);
+
+    return {
+      ...supplier.toObject(),
+      pending_payment: pendingPayment,
+      purchase_orders: purchaseOrders,
+      total_orders_count: purchaseOrders.length,
+    };
   }
 
   static async createSupplier(data, userId) {
@@ -282,30 +302,42 @@ export class PurchaseService {
   /**
    * Post accepted GRN items to Inventory Stock Ledger upon QC Approval.
    */
-  static async postGrnToStock(grnId, userId) {
+  static async postGrnToStock(grnId, userId, data = {}) {
     const grn = await GoodsReceiptNote.findById(grnId);
     if (!grn) throw AppError.notFound('GRN not found');
     if (grn.stock_posted) {
       throw AppError.badRequest('GRN stock already posted');
     }
 
+    if (data?.warehouse_id) {
+      grn.warehouse_id = data.warehouse_id;
+    }
+    if (userId) {
+      grn.received_by = userId;
+    }
+    if (data?.remarks) {
+      grn.remarks = grn.remarks ? `${grn.remarks} | ${data.remarks}` : data.remarks;
+    }
+
+    const targetWarehouseId = grn.warehouse_id;
+
     for (const item of grn.items) {
       const acceptedQty = item.accepted_qty > 0 ? item.accepted_qty : item.received_qty;
       if (acceptedQty <= 0) continue;
 
-      // 1. Create or update batch
+      // 1. Create or update batch in destination warehouse
       let batchNumber = item.batch_number || `BATCH-${grn.grn_number.slice(-4)}-${String(item.product_id).slice(-4)}`;
       let batch = await Batch.findOne({
         batch_number: batchNumber,
         product_id: item.product_id,
-        warehouse_id: grn.warehouse_id,
+        warehouse_id: targetWarehouseId,
       });
 
       if (!batch) {
         batch = await Batch.create({
           batch_number: batchNumber,
           product_id: item.product_id,
-          warehouse_id: grn.warehouse_id,
+          warehouse_id: targetWarehouseId,
           initial_qty: acceptedQty,
           current_qty: acceptedQty,
           cost_rate: item.unit_rate || 0,
@@ -320,7 +352,7 @@ export class PurchaseService {
       await StockTransactionService.recordTransaction({
         transaction_type: 'GRN',
         product_id: item.product_id,
-        warehouse_id: grn.warehouse_id,
+        warehouse_id: targetWarehouseId,
         batch_id: batch._id,
         batch_number: batch.batch_number,
         qty: acceptedQty,
@@ -328,7 +360,7 @@ export class PurchaseService {
         reference_type: 'GoodsReceiptNote',
         reference_id: grn._id,
         reference_no: grn.grn_number,
-        remarks: `GRN received from supplier`,
+        remarks: data?.remarks || `GRN received from supplier`,
         performed_by: userId,
       });
 
@@ -346,9 +378,10 @@ export class PurchaseService {
   /**
    * Purchase Invoices (Supplier Bills)
    */
-  static async getInvoices({ status, page = 1, limit = 20 } = {}) {
+  static async getInvoices({ status, supplier_id, page = 1, limit = 20 } = {}) {
     const filter = {};
     if (status) filter.status = status;
+    if (supplier_id) filter.supplier_id = supplier_id;
 
     const skip = (page - 1) * limit;
     const [invoices, total] = await Promise.all([

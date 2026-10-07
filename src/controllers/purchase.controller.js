@@ -96,7 +96,7 @@ export const createGrn = asyncHandler(async (req, res) => {
 });
 
 export const postGrnToStock = asyncHandler(async (req, res) => {
-  const grn = await PurchaseService.postGrnToStock(req.params.id, req.user?._id);
+  const grn = await PurchaseService.postGrnToStock(req.params.id, req.user?._id, req.body);
   return ApiResponse.success(res, grn, 'GRN accepted goods posted to inventory stock');
 });
 
