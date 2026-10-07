@@ -1,4 +1,5 @@
 import express from 'express';
+import './models/index.js';
 import { correlationMiddleware } from './middleware/correlation.middleware.js';
 import { errorMiddleware } from './middleware/error.middleware.js';
 import { requestLogger } from './middleware/logger.middleware.js';
