@@ -270,8 +270,43 @@ export class PurchaseService {
       grnNumber = `GRN-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
     }
 
+    let po = null;
+    if (data.po_id) {
+      po = await PurchaseOrder.findById(data.po_id);
+    }
+
+    if (!data.supplier_id && po?.supplier_id) {
+      data.supplier_id = po.supplier_id;
+    }
+
+    if (!data.warehouse_id && po?.warehouse_id) {
+      data.warehouse_id = po.warehouse_id;
+    }
+
+    if (!data.warehouse_id) {
+      const defaultWh = (await Warehouse.findOne({ is_active: { $ne: false } })) || (await Warehouse.findOne());
+      if (defaultWh) {
+        data.warehouse_id = defaultWh._id;
+      }
+    }
+
+    // Ensure items have proper rate and accepted_qty
+    const sanitizedItems = (data.items || []).map((item) => {
+      const poItem = po?.items?.find((pi) => String(pi.product_id) === String(item.product_id));
+      const receivedQty = Number(item.received_qty || 0);
+      return {
+        ...item,
+        received_qty: receivedQty,
+        accepted_qty: Number(item.accepted_qty !== undefined ? item.accepted_qty : receivedQty),
+        unit_rate: Number(item.unit_rate || poItem?.rate || 0),
+        uom_id: item.uom_id || poItem?.uom_id || null,
+        po_item_id: item.po_item_id || poItem?._id || null,
+      };
+    });
+
     const grn = await GoodsReceiptNote.create({
       ...data,
+      items: sanitizedItems,
       grn_number: grnNumber,
       received_by: userId,
       status: 'received',
@@ -279,21 +314,18 @@ export class PurchaseService {
     });
 
     // Update PO item received/pending quantities
-    if (data.po_id) {
-      const po = await PurchaseOrder.findById(data.po_id);
-      if (po) {
-        let allFulfilled = true;
-        for (const item of data.items || []) {
-          const poItem = po.items.find((pi) => String(pi.product_id) === String(item.product_id));
-          if (poItem) {
-            poItem.received_qty = (poItem.received_qty || 0) + Number(item.received_qty);
-            poItem.pending_qty = Math.max(0, poItem.ordered_qty - poItem.received_qty);
-            if (poItem.pending_qty > 0) allFulfilled = false;
-          }
+    if (po) {
+      let allFulfilled = true;
+      for (const item of sanitizedItems) {
+        const poItem = po.items.find((pi) => String(pi.product_id) === String(item.product_id));
+        if (poItem) {
+          poItem.received_qty = (poItem.received_qty || 0) + Number(item.received_qty);
+          poItem.pending_qty = Math.max(0, poItem.ordered_qty - poItem.received_qty);
+          if (poItem.pending_qty > 0) allFulfilled = false;
         }
-        po.status = allFulfilled ? 'completed' : 'partially_received';
-        await po.save();
       }
+      po.status = allFulfilled ? 'completed' : 'partially_received';
+      await po.save();
     }
 
     return grn;
