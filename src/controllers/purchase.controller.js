@@ -131,3 +131,56 @@ export const createReturn = asyncHandler(async (req, res) => {
   const pret = await PurchaseService.createReturn(req.body, req.user?._id);
   return ApiResponse.created(res, pret, 'Purchase return processed successfully');
 });
+
+// Supplier Categories
+export const listSupplierCategories = asyncHandler(async (req, res) => {
+  const categories = await PurchaseService.getSupplierCategories(req.query);
+  return ApiResponse.success(res, categories, 'Supplier categories fetched successfully');
+});
+
+export const createSupplierCategory = asyncHandler(async (req, res) => {
+  const category = await PurchaseService.createSupplierCategory(req.body, req.user?._id);
+  return ApiResponse.created(res, category, 'Supplier category created successfully');
+});
+
+export const updateSupplierCategory = asyncHandler(async (req, res) => {
+  const category = await PurchaseService.updateSupplierCategory(req.params.id, req.body, req.user?._id);
+  return ApiResponse.success(res, category, 'Supplier category updated successfully');
+});
+
+export const deleteSupplierCategory = asyncHandler(async (req, res) => {
+  const result = await PurchaseService.deleteSupplierCategory(req.params.id);
+  return ApiResponse.success(res, result, 'Supplier category deleted successfully');
+});
+
+// Supplier Inquiries / RFQ
+export const listInquiries = asyncHandler(async (req, res) => {
+  const result = await PurchaseService.getInquiries(req.query);
+  return ApiResponse.paginated(res, result.inquiries, {
+    page: result.page,
+    limit: result.limit,
+    total: result.total,
+    totalPages: result.totalPages,
+  }, 'Supplier inquiries fetched successfully');
+});
+
+export const getInquiryById = asyncHandler(async (req, res) => {
+  const inquiry = await PurchaseService.getInquiryById(req.params.id);
+  return ApiResponse.success(res, inquiry, 'Supplier inquiry fetched successfully');
+});
+
+export const createInquiry = asyncHandler(async (req, res) => {
+  const inquiry = await PurchaseService.createInquiry(req.body, req.user?._id);
+  return ApiResponse.created(res, inquiry, 'Supplier inquiry created successfully');
+});
+
+export const updateSupplierQuotationStatus = asyncHandler(async (req, res) => {
+  const inquiry = await PurchaseService.updateSupplierQuotationStatus(
+    req.params.id,
+    req.params.supplierId,
+    req.body,
+    req.user?._id
+  );
+  return ApiResponse.success(res, inquiry, 'Supplier quotation status updated successfully');
+});
+

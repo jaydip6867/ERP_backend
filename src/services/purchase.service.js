@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import { Supplier } from '../models/supplier.model.js';
+import { SupplierCategory } from '../models/supplierCategory.model.js';
+import { SupplierInquiry } from '../models/supplierInquiry.model.js';
 import { PurchaseRequisition } from '../models/purchaseRequisition.model.js';
 import { PurchaseOrder } from '../models/purchaseOrder.model.js';
 import { GoodsReceiptNote } from '../models/grn.model.js';
@@ -21,11 +24,112 @@ const GRN_UPLOADS_DIR = path.resolve(__serviceDirname, '../uploads/grn');
 
 export class PurchaseService {
   /**
+   * Supplier Category Management
+   */
+  static async getSupplierCategories({ search, is_active } = {}) {
+    const count = await SupplierCategory.countDocuments();
+    if (count === 0) {
+      const defaults = [
+        { name: 'Raw Materials', code: 'RAW_MATERIALS', description: 'Raw materials and production ingredients' },
+        { name: 'Consumables & Hardware', code: 'CONSUMABLES', description: 'Consumables, tools, and hardware' },
+        { name: 'Machinery & Spares', code: 'MACHINERY', description: 'Machinery, equipment, and spare parts' },
+        { name: 'Packaging Materials', code: 'PACKAGING', description: 'Boxes, cartons, tapes, and packing materials' },
+        { name: 'Services & Maintenance', code: 'SERVICES', description: 'Job work, maintenance, and external services' },
+        { name: 'General Supplies', code: 'GENERAL', description: 'Office and miscellaneous supplies' },
+      ];
+      try {
+        await SupplierCategory.insertMany(defaults);
+      } catch (err) {
+        // Continue if already inserted
+      }
+    }
+
+    const filter = {};
+    if (is_active !== undefined) {
+      filter.is_active = is_active === 'true' || is_active === true;
+    }
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { code: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    return SupplierCategory.find(filter).sort({ name: 1 });
+  }
+
+  static async createSupplierCategory(data, userId) {
+    if (!data.name) throw AppError.badRequest('Category name is required');
+    let code = data.code ? data.code.trim().toUpperCase() : data.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    
+    const existing = await SupplierCategory.findOne({
+      $or: [{ name: data.name.trim() }, { code }],
+    });
+    if (existing) {
+      throw AppError.conflict('Category with same name or code already exists');
+    }
+
+    return SupplierCategory.create({
+      ...data,
+      code,
+      created_by: userId,
+    });
+  }
+
+  static async updateSupplierCategory(id, data, userId) {
+    const category = await SupplierCategory.findById(id);
+    if (!category) throw AppError.notFound('Category not found');
+
+    if (data.name && data.name.trim() !== category.name) {
+      const existingName = await SupplierCategory.findOne({ name: data.name.trim(), _id: { $ne: id } });
+      if (existingName) throw AppError.conflict('Category with this name already exists');
+      category.name = data.name.trim();
+    }
+    if (data.code && data.code.trim().toUpperCase() !== category.code) {
+      const codeUpper = data.code.trim().toUpperCase();
+      const existingCode = await SupplierCategory.findOne({ code: codeUpper, _id: { $ne: id } });
+      if (existingCode) throw AppError.conflict('Category with this code already exists');
+      category.code = codeUpper;
+    }
+    if (data.description !== undefined) category.description = data.description;
+    if (data.is_active !== undefined) category.is_active = data.is_active;
+
+    await category.save();
+    return category;
+  }
+
+  static async deleteSupplierCategory(id) {
+    const category = await SupplierCategory.findById(id);
+    if (!category) throw AppError.notFound('Category not found');
+
+    const usedCount = await Supplier.countDocuments({
+      $or: [
+        { category_id: id },
+        { category: category.code.toLowerCase() },
+        { category: category.name },
+      ],
+    });
+    if (usedCount > 0) {
+      throw AppError.badRequest(`Cannot delete category because ${usedCount} supplier(s) are linked to it. Please deactivate it instead.`);
+    }
+
+    await SupplierCategory.findByIdAndDelete(id);
+    return { message: 'Category deleted successfully' };
+  }
+
+  /**
    * Supplier Management
    */
-  static async getSuppliers({ search, category, status, page = 1, limit = 20 } = {}) {
+  static async getSuppliers({ search, category, category_id, status, page = 1, limit = 20 } = {}) {
     const filter = {};
-    if (category) filter.category = category;
+    if (category_id) {
+      filter.$or = [{ category_id }, { category: category_id }];
+    } else if (category) {
+      filter.$or = [
+        { category },
+        { category_id: mongoose.Types.ObjectId.isValid(category) ? category : null },
+      ];
+    }
     if (status) filter.status = status;
     if (search) {
       filter.$or = [
@@ -37,7 +141,11 @@ export class PurchaseService {
 
     const skip = (page - 1) * limit;
     const [suppliers, total] = await Promise.all([
-      Supplier.find(filter).sort({ supplier_name: 1 }).skip(skip).limit(limit),
+      Supplier.find(filter)
+        .populate('category_id', 'name code')
+        .sort({ supplier_name: 1 })
+        .skip(skip)
+        .limit(limit),
       Supplier.countDocuments(filter),
     ]);
 
@@ -618,6 +726,116 @@ export class PurchaseService {
     pret.stock_deducted = true;
     await pret.save();
     return pret;
+  }
+
+  /**
+   * Supplier Inquiry / RFQ Management
+   */
+  static async getInquiries({ search, category_id, status, page = 1, limit = 20 } = {}) {
+    const filter = {};
+    if (status) filter.status = status;
+    if (category_id) filter.category_id = category_id;
+    if (search) {
+      filter.$or = [
+        { inquiry_number: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: 'i' } },
+        { 'suppliers.supplier_name': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const [inquiries, total] = await Promise.all([
+      SupplierInquiry.find(filter)
+        .populate('category_id', 'name code')
+        .populate('created_by', 'full_name email')
+        .populate('items.product_id', 'product_name product_code')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      SupplierInquiry.countDocuments(filter),
+    ]);
+
+    return { inquiries, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  static async getInquiryById(id) {
+    const inquiry = await SupplierInquiry.findById(id)
+      .populate('category_id', 'name code')
+      .populate('created_by', 'full_name email')
+      .populate('items.product_id', 'product_name product_code')
+      .populate('suppliers.supplier_id', 'supplier_name supplier_code mobile email contact_person');
+    if (!inquiry) throw AppError.notFound('Supplier inquiry not found');
+    return inquiry;
+  }
+
+  static async createInquiry(data, userId) {
+    if (!data.title) throw AppError.badRequest('Inquiry title is required');
+    if (!data.items || data.items.length === 0) {
+      throw AppError.badRequest('At least one item is required in the inquiry');
+    }
+    if (!data.suppliers || data.suppliers.length === 0) {
+      throw AppError.badRequest('At least one recipient supplier is required');
+    }
+
+    let inqNumber = data.inquiry_number;
+    if (!inqNumber) {
+      const count = await SupplierInquiry.countDocuments();
+      inqNumber = `INQ-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    }
+
+    let categoryName = data.category_name;
+    if (data.category_id && !categoryName) {
+      const cat = await SupplierCategory.findById(data.category_id);
+      if (cat) categoryName = cat.name;
+    }
+
+    const inquiry = await SupplierInquiry.create({
+      ...data,
+      inquiry_number: inqNumber,
+      category_name: categoryName,
+      created_by: userId,
+      status: data.status || 'sent',
+    });
+
+    return inquiry;
+  }
+
+  static async updateSupplierQuotationStatus(inquiryId, supplierSubId, { status, quoted_price, quoted_delivery_date, quoted_remarks, accept_reason, reject_reason } = {}, userId) {
+    const inquiry = await SupplierInquiry.findById(inquiryId);
+    if (!inquiry) throw AppError.notFound('Supplier inquiry not found');
+
+    const supplierEntry = inquiry.suppliers.id(supplierSubId) || inquiry.suppliers.find(s => s._id.toString() === supplierSubId || s.supplier_id?.toString() === supplierSubId);
+    if (!supplierEntry) {
+      throw AppError.notFound('Supplier entry not found in this inquiry');
+    }
+
+    if (status) supplierEntry.status = status;
+    if (quoted_price !== undefined) supplierEntry.quoted_price = quoted_price;
+    if (quoted_delivery_date !== undefined) supplierEntry.quoted_delivery_date = quoted_delivery_date;
+    if (quoted_remarks !== undefined) supplierEntry.quoted_remarks = quoted_remarks;
+
+    if (status === 'accepted') {
+      supplierEntry.accept_reason = accept_reason || supplierEntry.accept_reason || '';
+      supplierEntry.accepted_at = new Date();
+      inquiry.status = 'partially_accepted';
+    } else if (status === 'rejected') {
+      supplierEntry.reject_reason = reject_reason || supplierEntry.reject_reason || '';
+      supplierEntry.rejected_at = new Date();
+    } else if (status === 'quoted') {
+      if (inquiry.status === 'sent') {
+        inquiry.status = 'in_review';
+      }
+    }
+
+    // Check if all suppliers are accepted/rejected
+    const allDecided = inquiry.suppliers.every(s => s.status === 'accepted' || s.status === 'rejected');
+    if (allDecided && inquiry.suppliers.length > 0) {
+      const anyAccepted = inquiry.suppliers.some(s => s.status === 'accepted');
+      inquiry.status = anyAccepted ? 'partially_accepted' : 'closed';
+    }
+
+    await inquiry.save();
+    return inquiry;
   }
 }
 

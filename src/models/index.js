@@ -41,6 +41,8 @@ export * from './salesOrder.model.js';
 
 // Purchase
 export * from './supplier.model.js';
+export * from './supplierCategory.model.js';
+export * from './supplierInquiry.model.js';
 export * from './purchaseRequisition.model.js';
 export * from './purchaseOrder.model.js';
 export * from './grn.model.js';

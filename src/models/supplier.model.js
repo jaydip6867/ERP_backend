@@ -45,8 +45,15 @@ const supplierSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['raw_materials', 'consumables', 'machinery', 'services', 'packaging', 'general'],
       default: 'raw_materials',
+      trim: true,
+      index: true,
+    },
+    category_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SupplierCategory',
+      default: null,
+      index: true,
     },
     address: {
       address_line1: String,
