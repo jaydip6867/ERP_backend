@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { Supplier } from '../models/supplier.model.js';
 import { PurchaseRequisition } from '../models/purchaseRequisition.model.js';
 import { PurchaseOrder } from '../models/purchaseOrder.model.js';
@@ -13,6 +14,10 @@ import { Warehouse } from '../models/warehouse.model.js';
 import { Branch } from '../models/branch.model.js';
 import { User } from '../models/user.model.js';
 import { AppError } from '../utils/appError.js';
+
+const __serviceFilename = fileURLToPath(import.meta.url);
+const __serviceDirname = path.dirname(__serviceFilename);
+const GRN_UPLOADS_DIR = path.resolve(__serviceDirname, '../uploads/grn');
 
 export class PurchaseService {
   /**
@@ -289,13 +294,12 @@ export class PurchaseService {
         ext = path.extname(originalFileName);
       }
 
-      const uploadDir = path.resolve('src/uploads/grn');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
+      if (!fs.existsSync(GRN_UPLOADS_DIR)) {
+        fs.mkdirSync(GRN_UPLOADS_DIR, { recursive: true });
       }
 
       const safeName = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e4)}${ext}`;
-      const filePath = path.join(uploadDir, safeName);
+      const filePath = path.join(GRN_UPLOADS_DIR, safeName);
       const buffer = Buffer.from(base64Content, 'base64');
       fs.writeFileSync(filePath, buffer);
 

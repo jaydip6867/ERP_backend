@@ -1,4 +1,7 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 import './models/index.js';
 import { correlationMiddleware } from './middleware/correlation.middleware.js';
 import { errorMiddleware } from './middleware/error.middleware.js';
@@ -7,6 +10,13 @@ import { notFoundMiddleware } from './middleware/notFound.middleware.js';
 import { securityMiddleware } from './middleware/security.middleware.js';
 import apiRouter from './routes/index.js';
 import { ApiResponse } from './utils/apiResponse.js';
+
+const __appFilename = fileURLToPath(import.meta.url);
+const __appDirname = path.dirname(__appFilename);
+const uploadsDirectory = path.resolve(__appDirname, 'uploads');
+if (!fs.existsSync(uploadsDirectory)) {
+  fs.mkdirSync(uploadsDirectory, { recursive: true });
+}
 
 const app = express();
 
@@ -45,8 +55,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Static uploads directory
-app.use('/uploads', express.static('src/uploads'));
+// Static uploads directory (resolved absolutely so it works regardless of process.cwd)
+app.use('/uploads', express.static(uploadsDirectory));
 
 // API Versioning: Mount all v1 routes under /api/v1
 app.use('/api/v1', apiRouter);
