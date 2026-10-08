@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Supplier } from '../models/supplier.model.js';
 import { PurchaseRequisition } from '../models/purchaseRequisition.model.js';
 import { PurchaseOrder } from '../models/purchaseOrder.model.js';
@@ -263,6 +265,51 @@ export class PurchaseService {
     return grn;
   }
 
+  static saveBase64Attachment(base64Data, originalFileName, prefix = 'grn') {
+    if (!base64Data || typeof base64Data !== 'string') return null;
+
+    try {
+      let mimeType = 'application/octet-stream';
+      let base64Content = base64Data;
+
+      if (base64Data.startsWith('data:')) {
+        const matches = base64Data.match(/^data:([A-Za-z0-9-+./]+);base64,(.+)$/s);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          base64Content = matches[2];
+        }
+      }
+
+      let ext = '.bin';
+      if (mimeType.includes('pdf')) ext = '.pdf';
+      else if (mimeType.includes('png')) ext = '.png';
+      else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
+      else if (mimeType.includes('webp')) ext = '.webp';
+      else if (originalFileName && originalFileName.includes('.')) {
+        ext = path.extname(originalFileName);
+      }
+
+      const uploadDir = path.resolve('src/uploads/grn');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      const safeName = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e4)}${ext}`;
+      const filePath = path.join(uploadDir, safeName);
+      const buffer = Buffer.from(base64Content, 'base64');
+      fs.writeFileSync(filePath, buffer);
+
+      return {
+        file_url: `/uploads/grn/${safeName}`,
+        file_name: originalFileName || safeName,
+        file_type: mimeType,
+      };
+    } catch (err) {
+      console.error('Error saving base64 attachment:', err);
+      return null;
+    }
+  }
+
   static async createGrn(data, userId) {
     let grnNumber = data.grn_number;
     if (!grnNumber) {
@@ -288,6 +335,37 @@ export class PurchaseService {
       if (defaultWh) {
         data.warehouse_id = defaultWh._id;
       }
+    }
+
+    // Process attachment if provided
+    if (data?.file_data || data?.attachment_file) {
+      const saved = PurchaseService.saveBase64Attachment(
+        data.file_data || data.attachment_file,
+        data.attachment_name,
+        'grn'
+      );
+      if (saved) {
+        data.attachment_url = saved.file_url;
+        data.attachment_name = saved.file_name;
+        data.attachment_type = saved.file_type;
+        data.documents = [
+          {
+            file_url: saved.file_url,
+            file_name: saved.file_name,
+            file_type: saved.file_type,
+            uploaded_at: new Date(),
+          },
+        ];
+      }
+    } else if (data?.attachment_url) {
+      data.documents = [
+        {
+          file_url: data.attachment_url,
+          file_name: data.attachment_name || 'Attached Document',
+          file_type: data.attachment_type || 'document',
+          uploaded_at: new Date(),
+        },
+      ];
     }
 
     // Ensure items have proper rate and accepted_qty
@@ -349,6 +427,38 @@ export class PurchaseService {
     }
     if (data?.remarks) {
       grn.remarks = grn.remarks ? `${grn.remarks} | ${data.remarks}` : data.remarks;
+    }
+
+    // Process uploaded document/file (PDF or Image)
+    if (data?.file_data || data?.attachment_file) {
+      const saved = PurchaseService.saveBase64Attachment(
+        data.file_data || data.attachment_file,
+        data.attachment_name,
+        `grn-${grn._id}`
+      );
+      if (saved) {
+        grn.attachment_url = saved.file_url;
+        grn.attachment_name = saved.file_name;
+        grn.attachment_type = saved.file_type;
+        if (!grn.documents) grn.documents = [];
+        grn.documents.push({
+          file_url: saved.file_url,
+          file_name: saved.file_name,
+          file_type: saved.file_type,
+          uploaded_at: new Date(),
+        });
+      }
+    } else if (data?.attachment_url) {
+      grn.attachment_url = data.attachment_url;
+      grn.attachment_name = data.attachment_name || 'Attached Document';
+      grn.attachment_type = data.attachment_type || 'document';
+      if (!grn.documents) grn.documents = [];
+      grn.documents.push({
+        file_url: data.attachment_url,
+        file_name: data.attachment_name || 'Attached Document',
+        file_type: data.attachment_type || 'document',
+        uploaded_at: new Date(),
+      });
     }
 
     const targetWarehouseId = grn.warehouse_id;

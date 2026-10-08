@@ -141,6 +141,38 @@ const grnSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    attachment_url: {
+      type: String,
+      default: '',
+    },
+    attachment_name: {
+      type: String,
+      default: '',
+    },
+    attachment_type: {
+      type: String,
+      default: '',
+    },
+    documents: [
+      {
+        file_url: {
+          type: String,
+          required: true,
+        },
+        file_name: {
+          type: String,
+          default: '',
+        },
+        file_type: {
+          type: String,
+          default: '',
+        },
+        uploaded_at: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     timestamps: true,
